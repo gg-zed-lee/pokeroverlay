@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Output Window</title>
+  <!-- Firebase App (필수) -->
+  <script src="https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js"></script>
+  <!-- Firebase Realtime Database -->
+  <script src="https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: transparent;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      position: relative;
+    }
+    #players {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 1920px;
+      height: 1080px;
+    }
+    .player-box {
+      position: absolute;
+      width: 130px;
+      height: 130px;
+      background-color: black;
+      border-radius: 10px;
+      color: white;
+      overflow: hidden;
+    }
+    .stat-value {
+      font-size: 20px;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .circular-chart {
+      width: 100%;
+      height: 100%;
+    }
+    .circle-bg {
+      fill: none;
+      stroke: #555;
+      stroke-width: 10;
+    }
+    .circle {
+      fill: none;
+      stroke-width: 10;
+      stroke-linecap: round;
+      stroke: #4caf50;
+      transform-origin: center;
+      transform: rotate(-90deg);
+    }
+    .percentage {
+      fill: #fff;
+      font-family: Arial, sans-serif;
+      font-size: 1.5em;
+      text-anchor: middle;
+    }
+    /* 그래프 스타일 추가 */
+    .win-graph {
+      position: absolute;
+      width: 1056px;
+      height: 130px;
+      background-color: black;
+      overflow: hidden;
+    }
+    .win-graph svg {
+      width: 100%;
+      height: 100%;
+      background-color: transparent;
+      position: absolute;
+    }
+    .win-graph path {
+      fill: none;
+      stroke-width: 2;
+    }
+    .win-graph .player-line {
+      stroke: #4caf50; /* 초록색 */
+      stroke-dasharray: 1000;
+      stroke-dashoffset: 1000;
+      animation: draw-line 2s forwards ease-in-out;
+      animation-delay: 1s;
+    }
+    .win-graph .average-line {
+      stroke: red; /* 빨간색 */
+      stroke-dasharray: 1000;
+      stroke-dashoffset: 1000;
+      animation: draw-line 2s forwards ease-in-out;
+      animation-delay: 1s;
+    }
+    .win-graph .axis {
+      stroke: #555;
+      stroke-width: 1;
+    }
+    .win-graph text {
+      fill: #fff;
+      font-size: 12px;
+    }
+    @keyframes draw-line {
+      to {
+        stroke-dashoffset: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="players"></div>
+  <script>
+    // Firebase 구성 정보
+    var firebaseConfig = {
+      apiKey: "AIzaSyBkOueDeeSyqEEnQCK-aBvtsC7Krg1vRaQ",
+      authDomain: "project-solver-29a63.firebaseapp.com",
+      databaseURL: "https://project-solver-29a63-default-rtdb.firebaseio.com",
+      projectId: "project-solver-29a63",
+      storageBucket: "project-solver-29a63.appspot.com",
+      messagingSenderId: "905410422503",
+      appId: "1:905410422503:web:808cf07fa5c2354a07a442",
+      measurementId: "G-MMXJFW6VTP"
+    };
+
+    // Firebase 초기화
+    firebase.initializeApp(firebaseConfig);
+    var database = firebase.database();
+
+    function formatValue(statName, value) {
+      if (typeof value === 'number') {
+        if (statName.includes('%')) {
+          return value + '%';
+        } else if (statName === 'STACK' || statName === 'WIN' || statName === 'WIN(~)') {
+          return value.toLocaleString();
+        }
+      }
+      return value;
+    }
+
+    function animateNumber(element, start, end, duration) {
+      let startTimestamp = null;
+      const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+        element.textContent = Math.floor(progress * (end - start) + start);
+        if (progress < 1) {
+          window.requestAnimationFrame(step);
+        }
+      };
+      window.requestAnimationFrame(step);
+    }
+
+    function createCircularProgressBar(percentage, statName, displayValue, playerName, position) {
+      const svgNS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 100 100');
+      svg.classList.add('circular-chart');
+
+      const circleBG = document.createElementNS(svgNS, 'circle');
+      circleBG.setAttribute('class', 'circle-bg');
+      circleBG.setAttribute('cx', '50');
+      circleBG.setAttribute('cy', '50');
+      circleBG.setAttribute('r', '45');
+
+      const circle = document.createElementNS(svgNS, 'circle');
+      circle.setAttribute('class', 'circle');
+      circle.setAttribute('cx', '50');
+      circle.setAttribute('cy', '50');
+      circle.setAttribute('r', '45');
+      circle.setAttribute('stroke-dasharray', '283');
+      circle.setAttribute('stroke-dashoffset', '283');
+
+      const text = document.createElementNS(svgNS, 'text');
+      text.setAttribute('x', '50');
+      text.setAttribute('y', '50');
+      text.setAttribute('class', 'percentage');
+      text.setAttribute('dominant-baseline', 'middle');
+      text.textContent = '0';
+
+      svg.appendChild(circleBG);
+      svg.appendChild(circle);
+      svg.appendChild(text);
+
+      // 컨테이너 div 생성
+      const container = document.createElement('div');
+      container.classList.add('player-box');
+
+      // 위치 설정
+      if (position === 'OOP') {
+        container.style.left = '427px';
+        container.style.top = '166px';
+      } else if (position === 'IP') {
+        container.style.left = '427px';
+        container.style.top = '358px';
+      }
+
+      container.appendChild(svg);
+
+      // 애니메이션 적용
+      setTimeout(() => {
+        circle.style.transition = 'stroke-dashoffset 1s ease-in-out';
+        circle.style.strokeDashoffset = (283 - (percentage / 100) * 283);
+        animateNumber(text, 0, parseFloat(displayValue), 1000);
+      }, 0);
+
+      return container;
+    }
+
+    function createWinGraph(winHistory, playerName, averageChips) {
+      const maxWin = Math.max(...winHistory, ...averageChips);
+      const minWin = Math.min(...winHistory, ...averageChips);
+      const medianWin = (maxWin + minWin) / 2;
+
+      const svgNS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(svgNS, 'svg');
+
+      const width = 1056;
+      const height = 130;
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+      // Y축 레이블 추가
+      const yLabels = [
+        { value: maxWin, y: 0 },
+        { value: medianWin, y: height / 2 },
+        { value: minWin, y: height }
+      ];
+
+      yLabels.forEach(label => {
+        const text = document.createElementNS(svgNS, 'text');
+        text.setAttribute('x', 10);
+        text.setAttribute('y', label.y + 5);
+        text.setAttribute('text-anchor', 'start');
+        text.textContent = Math.round(label.value);
+        text.setAttribute('fill', '#fff');
+        svg.appendChild(text);
+
+        const line = document.createElementNS(svgNS, 'line');
+        line.setAttribute('x1', 50);
+        line.setAttribute('y1', label.y);
+        line.setAttribute('x2', width - 20);
+        line.setAttribute('y2', label.y);
+        line.setAttribute('stroke', '#555');
+        line.setAttribute('stroke-width', '0.5');
+        svg.appendChild(line);
+      });
+
+      // 축 그리기
+      const xAxis = document.createElementNS(svgNS, 'line');
+      xAxis.setAttribute('class', 'axis');
+      xAxis.setAttribute('x1', 50);
+      xAxis.setAttribute('y1', height);
+      xAxis.setAttribute('x2', width - 20);
+      xAxis.setAttribute('y2', height);
+
+      const yAxis = document.createElementNS(svgNS, 'line');
+      yAxis.setAttribute('class', 'axis');
+      yAxis.setAttribute('x1', 50);
+      yAxis.setAttribute('y1', 0);
+      yAxis.setAttribute('x2', 50);
+      yAxis.setAttribute('y2', height);
+
+      svg.appendChild(xAxis);
+      svg.appendChild(yAxis);
+
+      // 데이터 그리기 (플레이어의 스택 그래프)
+      const path = document.createElementNS(svgNS, 'path');
+      let d = '';
+
+      winHistory.forEach((win, index) => {
+        const x = 50 + (index / (winHistory.length - 1)) * (width - 70);
+        const y = height - ((win - minWin) / (maxWin - minWin || 1)) * height;
+        d += index === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
+      });
+
+      path.setAttribute('d', d);
+      path.setAttribute('class', 'player-line');
+
+      svg.appendChild(path);
+
+      // 플레이어 라인의 길이 계산 및 애니메이션 설정
+      const pathLength = path.getTotalLength();
+      path.style.strokeDasharray = pathLength;
+      path.style.strokeDashoffset = pathLength;
+
+      // 평균 칩 그래프 그리기
+      const avgPath = document.createElementNS(svgNS, 'path');
+      let avgD = '';
+
+      averageChips.forEach((avg, index) => {
+        const x = 50 + (index / (averageChips.length - 1)) * (width - 70);
+        const y = height - ((avg - minWin) / (maxWin - minWin || 1)) * height;
+        avgD += index === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
+      });
+
+      avgPath.setAttribute('d', avgD);
+      avgPath.setAttribute('class', 'average-line');
+
+      svg.appendChild(avgPath);
+
+      // 평균 라인의 길이 계산 및 애니메이션 설정
+      const avgPathLength = avgPath.getTotalLength();
+      avgPath.style.strokeDasharray = avgPathLength;
+      avgPath.style.strokeDashoffset = avgPathLength;
+
+      // X축 레이블 (5개 단위로 핸드 번호 표시)
+      const totalHands = winHistory.length;
+      for (let i = 1; i <= totalHands; i++) {
+        if (i === 1 || i % 5 === 0 || i === totalHands) {
+          const x = 50 + ((i - 1) / (totalHands - 1)) * (width - 70);
+          const text = document.createElementNS(svgNS, 'text');
+          text.setAttribute('x', x);
+          text.setAttribute('y', height + 15);
+          text.setAttribute('text-anchor', 'middle');
+          text.textContent = i;
+          svg.appendChild(text);
+        }
+      }
+
+      // 컨테이너 div 생성
+      const container = document.createElement('div');
+      container.classList.add('win-graph');
+
+      // 위치 설정
+      container.style.left = '427px';
+      container.style.top = '358px';
+
+      container.appendChild(svg);
+
+      return container;
+    }
+
+    function updateOutput(exportStats) {
+      const playersDiv = document.getElementById('players');
+
+      // 기존 내용 제거 후 새로운 내용 추가
+      playersDiv.innerHTML = '';
+
+      if (!exportStats || exportStats.length === 0) {
+        return;
+      }
+
+      exportStats.forEach(stat => {
+        if (stat.statName === 'WIN(~)' && stat.position === 'Graph') {
+          // 평균 칩 히스토리 계산
+          const averageChips = [];
+          const totalHands = stat.winHistory.length;
+          for (let i = 0; i < totalHands; i++) {
+            let totalChips = 0;
+            let playerCount = 0;
+            exportStats.forEach(s => {
+              if (s.winHistory && s.winHistory[i] !== undefined) {
+                totalChips += s.winHistory[i];
+                playerCount += 1;
+              }
+            });
+            averageChips[i] = playerCount ? totalChips / playerCount : 0;
+          }
+
+          const graphContainer = createWinGraph(stat.winHistory, stat.playerName, averageChips);
+          playersDiv.appendChild(graphContainer);
+
+        } else if (['VPIP', 'PFR', 'AGRfq', 'WTSD', '3BET', 'ATS'].includes(stat.statName) && (stat.position === 'OOP' || stat.position === 'IP')) {
+          let percentageValue = parseFloat(stat.value);
+
+          // 퍼센트 값 계산
+          if (stat.value.includes('%')) {
+            percentageValue = parseFloat(stat.value.replace('%', ''));
+          } else {
+            const maxValue = 100;
+            percentageValue = (parseFloat(stat.value) / maxValue) * 100;
+            if (percentageValue > 100) {
+              percentageValue = 100;
+            } else if (percentageValue < 0) {
+              percentageValue = 0;
+            }
+          }
+
+          const svgContainer = createCircularProgressBar(percentageValue, stat.statName, percentageValue.toFixed(2), stat.playerName, stat.position);
+
+          playersDiv.appendChild(svgContainer);
+        }
+      });
+    }
+
+    // Firebase에서 데이터 변경을 감지하여 업데이트
+    firebase.database().ref('exportStats').on('value', snapshot => {
+      const exportStats = snapshot.val();
+      updateOutput(exportStats);
+    });
+  </script>
+</body>
+</html>
